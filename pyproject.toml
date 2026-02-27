@@ -14,6 +14,8 @@ dependencies = [
     "pyaudio",
     "numpy",
     "scipy",
+    "pytest",
+    "httpx",
 ]
 
 [tool.uv.sources]
