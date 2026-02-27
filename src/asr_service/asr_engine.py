@@ -12,6 +12,9 @@ from .speaker_audio import SpeakerAudio
 
 logger = logging.getLogger(__name__)
 
+# 预热：服务启动即加载模型，避免每次 /asr/start 重新初始化
+_GLOBAL_SPEAKER_AUDIO = SpeakerAudio()
+
 
 def microphone_audio_stream(stop_event: threading.Event, chunk_size: int = VAD_CHUNK_SIZE) -> Iterable[bytes]:
     """
@@ -67,16 +70,29 @@ class AsrSessionManager:
 
             def _worker():
                 try:
-                    audio = SpeakerAudio()
+                    audio = _GLOBAL_SPEAKER_AUDIO
 
                     # === ASR 入口选择（仅保留一个启用，其余注释） ===
                     # 1) 机器人方法：UDP 流（返回字符串）
-                    # recognized_text = stream2text_udp(audio, "239.168.123.161:5555", duration=None, mode="dialog")
+                    # recognized_text = stream2text_udp(
+                    #     audio,
+                    #     "239.168.123.161:5555",
+                    #     duration=None,
+                    #     mode="plain",
+                    #     stop_event=self._stop_event,
+                    # )
                     # self._results = [{"speaker": "Robot", "text": recognized_text}]
+                    self._results = stream2text_udp(
+                        audio,
+                        "239.168.123.161:5555",
+                        duration=None,
+                        mode="plain",
+                        stop_event=self._stop_event,
+                    )
                     #
                     # 2) 调试1：本地麦克风输入（推荐/当前启用）
-                    stream = microphone_audio_stream(self._stop_event, VAD_CHUNK_SIZE)
-                    self._results = audio.process_audio_stream(stream, mode="plain")
+                    # stream = microphone_audio_stream(self._stop_event, VAD_CHUNK_SIZE)
+                    # self._results = audio.process_audio_stream(stream, mode="plain")
                     #
                     # 3) 调试2：手动输入测试
                     # recognized_text = input("请输入测试文本: ")
@@ -136,7 +152,8 @@ def stream2text_udp(
     udp_address: str = "239.168.123.161:5555",
     duration: float | None = 5.0,
     mode: str = "plain",
-) -> str:
+    stop_event: threading.Event | None = None,
+) -> list:
     """
     从 UDP 音频流识别文本（复用 SpeakerAudio 的 ASR 逻辑）。
     参考 robot-dialogue/audio/audio.py 的 stream2text 实现。
@@ -175,7 +192,11 @@ def stream2text_udp(
         start_time = time.time()
         buffer = b""
         try:
-            while duration is None or (time.time() - start_time) < duration:
+            while True:
+                if stop_event is not None and stop_event.is_set():
+                    break
+                if duration is not None and (time.time() - start_time) >= duration:
+                    break
                 try:
                     data, _ = udp_socket.recvfrom(4096)
                     buffer += data
@@ -202,5 +223,6 @@ def stream2text_udp(
             udp_socket.close()
 
     results = audio.process_audio_stream(udp_audio_stream_generator(), mode=mode)
-    lines = [f"{r.get('speaker', '')}: {r.get('text', '')}" for r in results if r.get("text")]
-    return "\n".join([line for line in lines if line.strip()])
+    # lines = [f"{r.get('speaker', '')}: {r.get('text', '')}" for r in results if r.get("text")]
+    # return "\n".join([line for line in lines if line.strip()])
+    return results
