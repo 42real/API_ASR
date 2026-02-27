@@ -1,7 +1,0 @@
-funasr>=1.0.0
-modelscope>=1.9.0
-pyaudio
-numpy
-torch
-torchaudio
-scipy
